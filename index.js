@@ -13,9 +13,10 @@ app.use(cors());
 app.use(express.json());
 
 const client = new MongoClient(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true, serverApi: ServerApiVersion.v1 });
-client.connect(err => {
+client.connect(async err => {
     // throw error if can't connect to database
     if (err) throw new Error('Cannot connect to Database');
+
 
     // default response
     app.get('/', (req, res) => {
@@ -37,6 +38,25 @@ client.connect(err => {
         } else {
             res.send({ ok: false, data: `Access token invalid / not set` });
         }
+    });
+
+    // get items
+    app.post('/get-items', async (req, res) => {
+        const email = req?.body?.accessToken;
+        let query;
+        if (email)
+            query = { $or: [{ user: '*' }, { user: email }] }
+        else
+            query = { user: '*' }
+        // console.log(query)
+        const page = req.body.page || 0;
+        const limit = req.body.limit || 10;
+        const skip = page * limit;
+        const collection = client.db("expeditor").collection("items");
+        const cursor = collection.find(query).skip(skip).limit(limit);
+        const items = await cursor.toArray();
+        console.log(req.body);
+        res.send(items);
     });
 
 
