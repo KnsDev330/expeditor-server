@@ -88,6 +88,22 @@ client.connect(async err => {
     });
 
 
+    // add new item
+    app.post('/add-item', async (req, res) => {
+        const uid = req.body?.uid;
+        const jwt = req.body?.jwt;
+        const item = req.body?.item;
+        if (!item || !jwt || !uid) return res.send({ ok: false, text: `Invalid userId / jwt / item` });
+        item.user = uid;
+        const collection = client.db("expeditor").collection("items");
+        const cursor = collection.insertOne(item);
+        const result = await cursor;
+        result.ok = true;
+        result.text = "Item added successfully";
+        res.send(result);
+    });
+
+
     // get items count
     app.post('/get-items-count', async (req, res) => {
         const uid = req.body?.uid;
