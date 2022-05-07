@@ -46,11 +46,17 @@ client.connect(async err => {
     // get items
     app.post('/get-items', async (req, res) => {
         const uid = req.body?.uid;
+        const myItems = req.body?.myItems;
         let query;
-        if (uid)
-            query = { $or: [{ user: '*' }, { user: uid }] }
-        else
+        if (uid) {
+            if (myItems) {
+                query = { user: uid };
+            } else {
+                query = { $or: [{ user: '*' }, { user: uid }] }
+            }
+        } else {
             query = { user: '*' }
+        }
         const page = req.body?.page || 0;
         const limit = req.body?.limit || 10;
         const collection = client.db("expeditor").collection("items");
@@ -59,6 +65,15 @@ client.connect(async err => {
         res.send(items);
     });
 
+
+    // get blogs
+    app.post('/get-blogs', async (req, res) => {
+        const collection = client.db("expeditor").collection("blogs");
+        const cursor = collection.find({});
+        const blogs = await cursor.toArray();
+        const response = { ok: true, text: `success`, blogs }
+        res.send(response);
+    });
 
     // get items
     app.post('/my-items', async (req, res) => {
