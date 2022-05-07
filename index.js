@@ -60,6 +60,20 @@ client.connect(async err => {
     });
 
 
+    // get items
+    app.post('/my-items', async (req, res) => {
+        const uid = req.body?.uid;
+        const jwt = req.body?.jwt;
+        if (!uid || !jwt) return res.send({ ok: false, text: `Invalid userId / jwt` });
+        let query = { user: uid };
+        const collection = client.db("expeditor").collection("items");
+        const cursor = collection.find(query);
+        const items = await cursor.toArray();
+        const response = { ok: true, text: `success`, items }
+        res.send(response);
+    });
+
+
     // get single item details
     app.post('/get-item', async (req, res) => {
         const uid = req.body?.uid;
@@ -100,6 +114,20 @@ client.connect(async err => {
         const result = await cursor;
         result.ok = true;
         result.text = "Item added successfully";
+        res.send(result);
+    });
+
+    // delete item
+    app.post('/delete-item', async (req, res) => {
+        const uid = req.body?.uid;
+        const jwt = req.body?.jwt;
+        const id = req.body?.id;
+        if (!id || !jwt || !uid) return res.send({ ok: false, text: `Invalid userId / jwt / itemId` });
+        const collection = client.db("expeditor").collection("items");
+        const cursor = collection.deleteOne({ _id: ObjectId(id) });
+        const result = await cursor;
+        result.ok = true;
+        result.text = "deleted successfully";
         res.send(result);
     });
 
