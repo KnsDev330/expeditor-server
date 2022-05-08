@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const jwt = require('jsonwebtoken');
+const JsonWebToken = require('jsonwebtoken');
 const { MongoClient, ServerApiVersion, ExplainVerbosity, ObjectId } = require('mongodb');
 
 const app = express();
@@ -15,90 +15,82 @@ app.use(express.json());
 const client = new MongoClient(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true, serverApi: ServerApiVersion.v1 });
 client.connect(async err => {
 
-    // throw error if can't connect to database
-    if (err) throw new Error('Cannot connect to Database');
+    if (err) throw new Error('Cannot connect to Database'); // throw error if can't connect to database
 
+    // collections
+    const itemsCollection = client.db("expeditor").collection("items");
+    const blogsCollection = client.db("expeditor").collection("blogs");
 
     // default response
     app.get('/', (req, res) => {
         res.send({ ok: true, data: 'Ok' });
     });
 
-
     // give a new jwt token
     app.post('/get-token', (req, res) => {
         const uid = req.body?.uid;
-        if (uid) {
-            jwt.sign(
-                { uid },
-                process.env.JWT_SECRET, // secret for JWT
-                (err, token) => {
-                    if (err) res.send({ ok: false, data: err.message });
-                    res.send({ ok: true, data: { token } });
-                }
-            )
-        } else {
-            res.send({ ok: false, data: `Access token invalid / not set` });
-        }
+        if (!uid) return res.status(400).send({ ok: false, data: `userId invalid / not set` }); // end request if uid not set
+        JsonWebToken.sign(
+            { uid },
+            process.env.JWT_SECRET, // secret for JWT
+            (err, token) => {
+                if (err) res.send({ ok: false, text: err.message });
+                res.send({ ok: true, text: 'ok', token });
+            }
+        )
     });
-
 
     // get items
     app.post('/get-items', async (req, res) => {
         const uid = req.body?.uid;
+        const jwt = req.body?.jwt;
         const myItems = req.body?.myItems;
         let query;
         if (uid) {
-            if (myItems) {
-                query = { user: uid };
-            } else {
-                query = { $or: [{ user: '*' }, { user: uid }] }
+            // validate jwt
+            try {
+                if (!JsonWebToken.verify(jwt, process.env.JWT_SECRET)) return res.status(400).send({ ok: false, text: `Invalid jwt token` });
+            } catch (error) {
+                return res.status(500).send({ ok: false, text: error.message });
             }
+            if (myItems) query = { user: uid }; // if requested from my items
+            else query = { $or: [{ user: '*' }, { user: uid }] } // if requested from manage inventories
         } else {
-            query = { user: '*' }
+            query = { user: '*' } // default
         }
         const page = req.body?.page || 0;
         const limit = req.body?.limit || 10;
-        const collection = client.db("expeditor").collection("items");
-        const cursor = collection.find(query).skip(page * limit).limit(limit);
-        const items = await cursor.toArray();
-        res.send(items);
+        const items = await itemsCollection.find(query).skip(page * limit).limit(limit).toArray();
+        const result = { ok: true, text: 'success', items }
+        res.send(result);
     });
 
 
     // get blogs
     app.post('/get-blogs', async (req, res) => {
-        const collection = client.db("expeditor").collection("blogs");
-        const cursor = collection.find({});
-        const blogs = await cursor.toArray();
+        const blogs = await blogsCollection.find({}).toArray();
         const response = { ok: true, text: `success`, blogs }
         res.send(response);
     });
-
-    // get items
-    app.post('/my-items', async (req, res) => {
-        const uid = req.body?.uid;
-        const jwt = req.body?.jwt;
-        if (!uid || !jwt) return res.send({ ok: false, text: `Invalid userId / jwt` });
-        let query = { user: uid };
-        const collection = client.db("expeditor").collection("items");
-        const cursor = collection.find(query);
-        const items = await cursor.toArray();
-        const response = { ok: true, text: `success`, items }
-        res.send(response);
-    });
-
 
     // get single item details
     app.post('/get-item', async (req, res) => {
         const uid = req.body?.uid;
         const jwt = req.body?.jwt;
         const id = req.body?.id;
-        if (!id || !jwt || !uid) res.send({ ok: false, text: `Invalid userId / jwt / id` });
-        const collection = client.db("expeditor").collection("items");
-        const cursor = collection.findOne({ _id: ObjectId(id) });
-        const item = await cursor;
-        res.send(item);
+        if (!id || !jwt || !uid) res.status(400).send({ ok: false, text: `invalid userId / jwt / id` });
+
+        // validate jwt
+        try {
+            if (!JsonWebToken.verify(jwt, process.env.JWT_SECRET)) return res.status(401).send({ ok: false, text: `invalid jwt token` });
+        } catch (error) {
+            return res.status(500).send({ ok: false, text: error.message });
+        }
+
+        const item = await itemsCollection.findOne({ _id: ObjectId(id) });
+        if (item.user !== '*' && item.user !== uid) return res.status(401).send({ ok: false, text: `unauthorized` });
+        const response = { ok: true, text: `success`, item }
+        res.send(response);
     });
 
 
@@ -108,12 +100,24 @@ client.connect(async err => {
         const jwt = req.body?.jwt;
         const id = req.body?.id;
         const restock = req.body?.restock;
-        if (!id || !jwt || !uid) return res.send({ ok: false, text: `Invalid userId / jwt / id` });
-        const collection = client.db("expeditor").collection("items");
+        if (restock) if (Number(restock) < 0) return res.status(400).send({ ok: false, text: `no negative amount please` });
+        if (!id || !jwt || !uid) return res.status(400).send({ ok: false, text: `invalid userId / jwt / id` });
+
+        // validate jwt
+        try {
+            if (!JsonWebToken.verify(jwt, process.env.JWT_SECRET)) return res.status(400).send({ ok: false, text: `invalid jwt token` });
+        } catch (error) {
+            return res.status(500).send({ ok: false, text: error.message });
+        }
+
+        // validate
+        const checkItem = await itemsCollection.findOne({ _id: ObjectId(id) });
+        if (item.user !== '*' && item.user !== uid) return res.status(401).send({ ok: false, text: `unauthorized` }); // error if quatity not enough
+        if (!restock) if (item.quantity <= 0) return res.status(400).send({ ok: false, text: `item quantity too short` }); // error if quatity not enough
+
         const updateQuery = restock ? { $inc: { quantity: Number(restock) } } : { $inc: { sold: 1, quantity: -1 } };
-        const cursor = collection.findOneAndUpdate({ _id: ObjectId(id) }, updateQuery, { upsert: false });
-        const item = await cursor;
-        res.send(item);
+        await itemsCollection.findOneAndUpdate({ _id: ObjectId(id) }, updateQuery, { upsert: false });
+        res.send({ ok: true, text: 'ok' });
     });
 
 
@@ -122,13 +126,18 @@ client.connect(async err => {
         const uid = req.body?.uid;
         const jwt = req.body?.jwt;
         const item = req.body?.item;
-        if (!item || !jwt || !uid) return res.send({ ok: false, text: `Invalid userId / jwt / item` });
+        if (!item || !jwt || !uid) return res.send({ ok: false, text: `invalid userId / jwt / item` });
+        // validate jwt
+        try {
+            if (!JsonWebToken.verify(jwt, process.env.JWT_SECRET)) return res.status(400).send({ ok: false, text: `invalid jwt token` });
+        } catch (error) {
+            return res.status(500).send({ ok: false, text: error.message });
+        }
         item.user = uid;
-        const collection = client.db("expeditor").collection("items");
-        const cursor = collection.insertOne(item);
+        const cursor = itemsCollection.insertOne(item);
         const result = await cursor;
         result.ok = true;
-        result.text = "Item added successfully";
+        result.text = "item added";
         res.send(result);
     });
 
@@ -137,10 +146,20 @@ client.connect(async err => {
         const uid = req.body?.uid;
         const jwt = req.body?.jwt;
         const id = req.body?.id;
-        if (!id || !jwt || !uid) return res.send({ ok: false, text: `Invalid userId / jwt / itemId` });
-        const collection = client.db("expeditor").collection("items");
-        const cursor = collection.deleteOne({ _id: ObjectId(id) });
-        const result = await cursor;
+        if (!id || !jwt || !uid) return res.send({ ok: false, text: `invalid userId / jwt / itemId` });
+
+        // validate jwt
+        try {
+            if (!JsonWebToken.verify(jwt, process.env.JWT_SECRET)) return res.status(400).send({ ok: false, text: `invalid jwt token` });
+        } catch (error) {
+            return res.status(500).send({ ok: false, text: error.message });
+        }
+
+        // check if user has permission to delete
+        const item = await itemsCollection.findOne({ _id: ObjectId(id) });
+        if (item.user !== "*" && item.user !== uid) return res.status(401).send({ ok: false, text: `unauthorized request` });
+
+        const result = await itemsCollection.deleteOne({ _id: ObjectId(id) });
         result.ok = true;
         result.text = "deleted successfully";
         res.send(result);
@@ -151,12 +170,9 @@ client.connect(async err => {
     app.post('/get-items-count', async (req, res) => {
         const uid = req.body?.uid;
         let query;
-        if (uid)
-            query = { $or: [{ user: '*' }, { user: uid }] }
-        else
-            query = { user: '*' }
-        const collection = client.db("expeditor").collection("items");
-        const count = await collection.countDocuments(query);
+        if (uid) query = { $or: [{ user: '*' }, { user: uid }] }
+        else query = { user: '*' }
+        const count = await itemsCollection.countDocuments(query);
         res.send({ ok: true, count });
     });
 
