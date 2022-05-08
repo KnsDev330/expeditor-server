@@ -112,8 +112,8 @@ client.connect(async err => {
 
         // validate
         const checkItem = await itemsCollection.findOne({ _id: ObjectId(id) });
-        if (item.user !== '*' && item.user !== uid) return res.status(401).send({ ok: false, text: `unauthorized` }); // error if quatity not enough
-        if (!restock) if (item.quantity <= 0) return res.status(400).send({ ok: false, text: `item quantity too short` }); // error if quatity not enough
+        if (checkItem.user !== '*' && checkItem.user !== uid) return res.status(401).send({ ok: false, text: `unauthorized` }); // error if quatity not enough
+        if (!restock) if (checkItem.quantity <= 0) return res.status(400).send({ ok: false, text: `item quantity too short` }); // error if quatity not enough
 
         const updateQuery = restock ? { $inc: { quantity: Number(restock) } } : { $inc: { sold: 1, quantity: -1 } };
         await itemsCollection.findOneAndUpdate({ _id: ObjectId(id) }, updateQuery, { upsert: false });
@@ -157,12 +157,14 @@ client.connect(async err => {
 
         // check if user has permission to delete
         const item = await itemsCollection.findOne({ _id: ObjectId(id) });
-        if (item.user !== "*" && item.user !== uid) return res.status(401).send({ ok: false, text: `unauthorized request` });
-
-        const result = await itemsCollection.deleteOne({ _id: ObjectId(id) });
-        result.ok = true;
-        result.text = "deleted successfully";
-        res.send(result);
+        if (item.user === "*" || item.user === uid) {
+            const result = await itemsCollection.deleteOne({ _id: ObjectId(id) });
+            result.ok = true;
+            result.text = "deleted successfully";
+            res.send(result);
+        } else {
+            res.status(401).send({ ok: false, text: `unauthorized request` });
+        }
     });
 
 
